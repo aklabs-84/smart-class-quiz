@@ -8,9 +8,10 @@ interface RankingProps {
   participants: Participant[];
   onNext: () => void;
   isTeacher: boolean;
+  nextLabel?: string;
 }
 
-const RankingView: React.FC<RankingProps> = ({ participants, onNext, isTeacher }) => {
+const RankingView: React.FC<RankingProps> = ({ participants, onNext, isTeacher, nextLabel }) => {
   const sorted = [...participants].sort((a, b) => b.score - a.score);
 
   return (
@@ -49,7 +50,7 @@ const RankingView: React.FC<RankingProps> = ({ participants, onNext, isTeacher }
           animate={{ y: 0, opacity: 1 }}
           className="mt-12 bg-blue-500 hover:bg-blue-400 text-white text-3xl font-jua px-12 py-6 rounded-3xl flex items-center gap-4 shadow-[0_10px_0_rgb(29,78,216)] active:translate-y-2 active:shadow-none transition-all"
         >
-          다음 문제로 <ChevronRight size={32} />
+          {nextLabel || '다음 문제로'} <ChevronRight size={32} />
         </motion.button>
       )}
     </div>

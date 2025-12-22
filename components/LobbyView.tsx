@@ -8,16 +8,15 @@ interface LobbyProps {
   participants: Participant[];
   isTeacher: boolean;
   onStart: () => void;
+  onToggleBgm?: () => void;
+  isBgmPlaying?: boolean;
 }
 
-const LobbyView: React.FC<LobbyProps> = ({ participants, isTeacher, onStart }) => {
+const LobbyView: React.FC<LobbyProps> = ({ participants, isTeacher, onStart, onToggleBgm, isBgmPlaying }) => {
   return (
     <div className="flex flex-col items-center justify-center h-full p-6">
       <div className="mb-12 text-center">
         <h2 className="text-4xl font-jua mb-4">참가자를 기다리고 있습니다...</h2>
-        <div className="text-xl bg-black/30 px-6 py-2 rounded-full inline-block border border-white/10">
-          대기실 PIN: <span className="font-bold text-yellow-300 tracking-widest">123 456</span>
-        </div>
       </div>
 
       <div className="flex flex-wrap justify-center gap-6 max-w-4xl">
@@ -48,11 +47,19 @@ const LobbyView: React.FC<LobbyProps> = ({ participants, isTeacher, onStart }) =
       </div>
 
       {isTeacher && (
-        <motion.div 
-          className="mt-16"
+        <motion.div
+          className="mt-16 flex flex-col items-center gap-4"
           initial={{ y: 50, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
         >
+          {onToggleBgm && (
+            <button
+              onClick={onToggleBgm}
+              className="bg-white/10 hover:bg-white/20 text-white text-lg font-jua px-6 py-3 rounded-2xl border border-white/20 transition-all"
+            >
+              {isBgmPlaying ? 'BGM 끄기' : 'BGM 재생'}
+            </button>
+          )}
           <button
             onClick={onStart}
             disabled={participants.length === 0}

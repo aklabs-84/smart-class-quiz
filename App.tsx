@@ -53,6 +53,10 @@ const App: React.FC = () => {
   const [answeredCount, setAnsweredCount] = useState(0);
   const [answerStats, setAnswerStats] = useState<Answer[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [teacherCountdownActive, setTeacherCountdownActive] = useState(false);
+  const [audioReady, setAudioReady] = useState(false);
+  const [bgmEnabled, setBgmEnabled] = useState(false);
+  const [hasAutoReset, setHasAutoReset] = useState(false);
 
   // 사용자 상태
   const [isTeacher, setIsTeacher] = useState(false);
@@ -73,6 +77,60 @@ const App: React.FC = () => {
   useEffect(() => {
     audioService.preload();
   }, []);
+
+  // 첫 사용자 제스처에서 오디오 시작
+  useEffect(() => {
+    const handleGesture = () => {
+      audioService.ensureStarted().then(() => {
+        setAudioReady(true);
+      });
+      window.removeEventListener('pointerdown', handleGesture);
+      window.removeEventListener('keydown', handleGesture);
+    };
+
+    window.addEventListener('pointerdown', handleGesture);
+    window.addEventListener('keydown', handleGesture);
+
+    return () => {
+      window.removeEventListener('pointerdown', handleGesture);
+      window.removeEventListener('keydown', handleGesture);
+    };
+  }, []);
+
+  const handleToggleBgm = useCallback(async () => {
+    await audioService.ensureStarted();
+    setAudioReady(true);
+    setBgmEnabled(prev => !prev);
+  }, []);
+
+  // BGM 제어 (대기 화면)
+  useEffect(() => {
+    const shouldPlay =
+      bgmEnabled && gameState === 'LOBBY' && (view === 'STUDENT' || view === 'TEACHER');
+
+    if (shouldPlay) {
+      if (audioReady) {
+        audioService.playBgm();
+      }
+    } else {
+      audioService.stopBgm();
+    }
+  }, [view, gameState, audioReady, bgmEnabled]);
+
+  // 선생님 입장 시 자동 리셋 (이전 세션 데이터 정리)
+  useEffect(() => {
+    if (!useApi || view !== 'TEACHER' || gameState !== 'LOBBY' || hasAutoReset) return;
+
+    const resetSession = async () => {
+      await resetGame();
+      setParticipants([]);
+      setCurrentQuestionIndex(0);
+      setGameState('LOBBY');
+      setHasAutoReset(true);
+    };
+
+    resetSession();
+  }, [useApi, view, gameState, hasAutoReset]);
 
   // 세션 ID 로드
   useEffect(() => {
@@ -201,6 +259,7 @@ const App: React.FC = () => {
 
   // 선생님 인증
   const handleTeacherLogin = useCallback((password: string): boolean => {
+    audioService.ensureStarted();
     const isValid = password === AUTH_CONFIG.TEACHER_PASSWORD;
     if (isValid) {
       setIsTeacher(true);
@@ -213,6 +272,7 @@ const App: React.FC = () => {
   // 학생 참여
   const handleJoin = useCallback(async (name: string) => {
     setIsLoading(true);
+    audioService.ensureStarted();
 
     let activeSessionId = sessionId;
     if (useApi && !activeSessionId) {
@@ -251,28 +311,27 @@ const App: React.FC = () => {
     setIsLoading(false);
   }, [useApi, sessionId]);
 
-  // 게임 시작 (카운트다운)
+  // 게임 시작 (선생님 카운트다운 오버레이 + 바로 퀴즈 진행)
   const startCountdown = useCallback(async () => {
-    if (useApi) {
-      console.log('🎮 Starting game...');
-      await updateGameState('COUNTDOWN', currentQuestionIndex, maxTimer, sessionId || undefined);
-    }
-    setGameState('COUNTDOWN');
-    setGameStateUpdatedAt(Date.now());
-  }, [useApi, currentQuestionIndex, maxTimer, sessionId]);
-
-  // 카운트다운 완료 → 퀴즈 시작
-  const handleCountdownComplete = useCallback(async () => {
+    audioService.ensureStarted();
+    audioService.playClick();
+    const startAt = Date.now();
     setGameState('QUIZ');
     setTimer(maxTimer);
-    setQuestionStartTime(Date.now());
+    setQuestionStartTime(startAt);
+    setGameStateUpdatedAt(startAt);
+    setTeacherCountdownActive(true);
+    setTimeout(() => setTeacherCountdownActive(false), 3500);
 
     if (useApi) {
+      console.log('🎮 Starting game...');
       await updateGameState('QUIZ', currentQuestionIndex, maxTimer, sessionId || undefined);
     }
-  }, [useApi, maxTimer, currentQuestionIndex, sessionId]);
+  }, [useApi, currentQuestionIndex, maxTimer, sessionId]);
 
   const handleShowResult = useCallback(async () => {
+    audioService.ensureStarted();
+    audioService.playResult();
     setGameState('RESULT');
     if (useApi) {
       await updateGameState('RESULT', currentQuestionIndex, maxTimer, sessionId || undefined);
@@ -280,6 +339,8 @@ const App: React.FC = () => {
   }, [useApi, currentQuestionIndex, maxTimer, sessionId]);
 
   const handleShowRanking = useCallback(async () => {
+    audioService.ensureStarted();
+    audioService.playClick();
     setGameState('RANKING');
     if (useApi) {
       await updateGameState('RANKING', currentQuestionIndex, maxTimer, sessionId || undefined);
@@ -289,6 +350,8 @@ const App: React.FC = () => {
   // 답변 제출
   const handleAnswer = useCallback(async (answerIndex: number) => {
     if (!studentInfo) return;
+    audioService.ensureStarted();
+    audioService.playClick();
 
     // 즉시 선택 완료 표시
     setStudentInfo(prev => prev ? {
@@ -356,6 +419,8 @@ const App: React.FC = () => {
 
   // 다음 문제
   const nextQuestion = useCallback(async () => {
+    audioService.ensureStarted();
+    audioService.playClick();
     // 답변 상태 초기화
     if (!useApi) {
       MOCK_PARTICIPANTS.forEach(p => {
@@ -376,10 +441,15 @@ const App: React.FC = () => {
     if (currentQuestionIndex < questions.length - 1) {
       const nextIdx = currentQuestionIndex + 1;
       setCurrentQuestionIndex(nextIdx);
-      setGameState('COUNTDOWN');
+      setGameState('QUIZ');
+      setTimer(maxTimer);
+      setQuestionStartTime(Date.now());
+      setGameStateUpdatedAt(Date.now());
+      setTeacherCountdownActive(true);
+      setTimeout(() => setTeacherCountdownActive(false), 3500);
 
       if (useApi) {
-        await updateGameState('COUNTDOWN', nextIdx, maxTimer, sessionId || undefined);
+        await updateGameState('QUIZ', nextIdx, maxTimer, sessionId || undefined);
       }
     } else {
       setGameState('FINAL');
@@ -393,6 +463,8 @@ const App: React.FC = () => {
 
   // 게임 리셋
   const handleRestart = useCallback(async () => {
+    audioService.ensureStarted();
+    audioService.playClick();
     if (useApi) {
       console.log('🔄 Resetting game...');
       await resetGame();
@@ -405,6 +477,8 @@ const App: React.FC = () => {
     setGameState('LOBBY');
     setTimer(maxTimer);
     setSessionId(null);
+    setTeacherCountdownActive(false);
+    setHasAutoReset(false);
     setView('SELECT');
   }, [useApi, maxTimer]);
 
@@ -438,6 +512,14 @@ const App: React.FC = () => {
 
     return () => clearInterval(interval);
   }, [view, studentInfo, gameState, gameStateUpdatedAt, maxTimer]);
+
+  // 학생 화면: 결과 전환 효과음
+  useEffect(() => {
+    if (view !== 'STUDENT') return;
+    if (gameState === 'RESULT') {
+      audioService.playResult();
+    }
+  }, [view, gameState]);
 
   // 학생 화면: 다음 문제 시작 시 답변 상태 초기화
   useEffect(() => {
@@ -595,15 +677,17 @@ const App: React.FC = () => {
             </header>
 
             <div className="flex-1 overflow-auto">
-              {gameState === 'LOBBY' && (
-                <LobbyView
-                  participants={participants}
-                  isTeacher={true}
-                  onStart={startCountdown}
-                />
-              )}
-              {gameState === 'COUNTDOWN' && (
-                <CountdownView onComplete={handleCountdownComplete} />
+      {gameState === 'LOBBY' && (
+        <LobbyView
+          participants={participants}
+          isTeacher={true}
+          onStart={startCountdown}
+          onToggleBgm={handleToggleBgm}
+          isBgmPlaying={bgmEnabled}
+        />
+      )}
+              {teacherCountdownActive && (
+                <CountdownView playSound />
               )}
               {gameState === 'QUIZ' && currentQuestion && (
                 <div className="space-y-6">
@@ -642,6 +726,7 @@ const App: React.FC = () => {
                   participants={participants}
                   onNext={nextQuestion}
                   isTeacher={true}
+                  nextLabel={currentQuestionIndex >= questions.length - 1 ? '최종 결과 보기' : '다음 문제로'}
                 />
               )}
               {gameState === 'FINAL' && (
@@ -664,7 +749,15 @@ const App: React.FC = () => {
             {!studentInfo ? (
               <JoinView onJoin={handleJoin} />
             ) : (
-              <div className="flex flex-col items-center justify-center flex-1">
+              <div className="flex flex-col items-center justify-center flex-1 w-full relative">
+                {(gameState === 'QUIZ' || gameState === 'RESULT' || gameState === 'RANKING' || gameState === 'FINAL') && (
+                  <div className="absolute top-0 right-0">
+                    <div className="flex items-center gap-2 bg-black/30 px-4 py-2 rounded-full border border-white/20 text-sm">
+                      <User size={16} />
+                      <span>{studentInfo.name}</span>
+                    </div>
+                  </div>
+                )}
                 {/* 로비 - 대기 중 */}
                 {gameState === 'LOBBY' && (
                   <motion.div
@@ -788,6 +881,7 @@ const App: React.FC = () => {
                       participants={participants}
                       onNext={() => {}}
                       isTeacher={false}
+                      nextLabel={currentQuestionIndex >= questions.length - 1 ? '최종 결과 보기' : '다음 문제로'}
                     />
                   </div>
                 )}

@@ -159,13 +159,15 @@ function getQuestions() {
     return { success: true, data: [] };
   }
 
-  const questions = data.slice(1).filter(row => row[0]).map(row => ({
-    id: row[0],
-    text: row[1],
-    options: [row[2], row[3], row[4], row[5]],
-    correctAnswer: row[6] - 1,  // 1-based to 0-based
-    timeLimit: row[7] || 20
-  }));
+  const questions = data.slice(1)
+    .filter(row => row[1])
+    .map((row, index) => ({
+      id: row[0] || (index + 1),
+      text: row[1],
+      options: [row[2], row[3], row[4], row[5]],
+      correctAnswer: row[6] - 1,  // 1-based to 0-based
+      timeLimit: row[7] || 20
+    }));
 
   return { success: true, data: questions };
 }

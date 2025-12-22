@@ -9,12 +9,14 @@ interface CountdownViewProps {
   onComplete?: () => void;
   duration?: number;
   startAt?: number;
+  playSound?: boolean;
 }
 
 const CountdownView: React.FC<CountdownViewProps> = ({
   onComplete,
   duration = 3,
-  startAt
+  startAt,
+  playSound = false
 }) => {
   const [count, setCount] = useState(duration);
   const hasCompletedRef = useRef(false);
@@ -54,6 +56,15 @@ const CountdownView: React.FC<CountdownViewProps> = ({
       return () => clearTimeout(timer);
     }
   }, [count, onComplete, startAt]);
+
+  useEffect(() => {
+    if (!playSound) return;
+    if (count > 0) {
+      import('../services/audioService').then(({ audioService }) => {
+        audioService.playCountdown();
+      });
+    }
+  }, [count, playSound]);
 
   const getColor = () => {
     if (count === 3) return 'text-red-400';
