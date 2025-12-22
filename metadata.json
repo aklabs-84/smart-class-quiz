@@ -1,0 +1,5 @@
+{
+  "name": "Smart Class Quiz (Kahoot Style)",
+  "description": "A real-time classroom quiz application inspired by Kahoot, featuring Google Sheets integration logic, interactive animations, and a teacher dashboard.",
+  "requestFramePermissions": []
+}
