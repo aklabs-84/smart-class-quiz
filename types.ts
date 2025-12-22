@@ -23,15 +23,19 @@ export interface Participant {
   isCorrect?: boolean;
   rank?: number;
   previousRank?: number;
+  sessionId?: string;
 }
 
 // 답변 정보
 export interface Answer {
+  participantId?: string;
   questionId: number;
   selectedOption: number;
   responseTime: number;  // 응답에 걸린 시간 (초)
   isCorrect: boolean;
   score: number;
+  sessionId?: string;
+  answeredAt?: string;
 }
 
 // 문제 정보

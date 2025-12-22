@@ -7,7 +7,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { User, Shield, Trophy, CheckCircle, XCircle, Wifi, WifiOff } from 'lucide-react';
 
 // Types
-import { GameState, Participant, Question } from './types';
+import { Answer, GameState, Participant, Question } from './types';
 
 // Components
 import LobbyView from './components/LobbyView';
@@ -39,7 +39,6 @@ import { AUTH_CONFIG, API_CONFIG, STORAGE_KEYS } from './utils/constants';
 import { audioService } from './services/audioService';
 
 const App: React.FC = () => {
-  const COUNTDOWN_TOTAL_MS = 3800;
   // 뷰 상태
   const [view, setView] = useState<'SELECT' | 'TEACHER_LOGIN' | 'TEACHER' | 'STUDENT'>('SELECT');
 
@@ -52,6 +51,8 @@ const App: React.FC = () => {
   const [maxTimer, setMaxTimer] = useState(20);
   const [gameStateUpdatedAt, setGameStateUpdatedAt] = useState<number | null>(null);
   const [answeredCount, setAnsweredCount] = useState(0);
+  const [answerStats, setAnswerStats] = useState<Answer[]>([]);
+  const [sessionId, setSessionId] = useState<string | null>(null);
 
   // 사용자 상태
   const [isTeacher, setIsTeacher] = useState(false);
@@ -72,6 +73,20 @@ const App: React.FC = () => {
   useEffect(() => {
     audioService.preload();
   }, []);
+
+  // 세션 ID 로드
+  useEffect(() => {
+    if (!useApi || sessionId) return;
+
+    const loadSession = async () => {
+      const result = await getGameState();
+      if (result.success && result.data?.sessionId) {
+        setSessionId(result.data.sessionId);
+      }
+    };
+
+    loadSession();
+  }, [useApi, sessionId]);
 
   // 문제 로드 (API 또는 Mock)
   useEffect(() => {
@@ -97,7 +112,7 @@ const App: React.FC = () => {
     if (!useApi || gameState !== 'LOBBY') return;
 
     const fetchParticipants = async () => {
-      const result = await getParticipants();
+      const result = await getParticipants(sessionId || undefined);
       if (result.success && result.data) {
         setParticipants(result.data.map(p => ({
           ...p,
@@ -112,7 +127,7 @@ const App: React.FC = () => {
     const interval = setInterval(fetchParticipants, 3000);
 
     return () => clearInterval(interval);
-  }, [useApi, gameState]);
+  }, [useApi, gameState, sessionId]);
 
   // 참가자 목록 폴링 (진행 중)
   useEffect(() => {
@@ -120,7 +135,7 @@ const App: React.FC = () => {
     if (gameState === 'LOBBY' || gameState === 'FINAL') return;
 
     const fetchParticipants = async () => {
-      const result = await getParticipants();
+      const result = await getParticipants(sessionId || undefined);
       if (result.success && result.data) {
         setParticipants(result.data.map(p => ({
           ...p,
@@ -134,7 +149,7 @@ const App: React.FC = () => {
     fetchParticipants();
     const interval = setInterval(fetchParticipants, 1000);
     return () => clearInterval(interval);
-  }, [useApi, view, gameState]);
+  }, [useApi, view, gameState, sessionId]);
 
   // 학생 화면: 게임 상태 폴링
   useEffect(() => {
@@ -147,6 +162,7 @@ const App: React.FC = () => {
         const newQuestionIndex = result.data.currentQuestionIndex;
         const newMaxTimer = result.data.maxTimer ?? maxTimer;
         const updatedAt = result.data.updatedAt ? new Date(result.data.updatedAt).getTime() : null;
+        const newSessionId = result.data.sessionId;
 
         if (newState !== gameState) {
           console.log('🔄 Game state changed:', newState);
@@ -160,6 +176,9 @@ const App: React.FC = () => {
         }
         if (updatedAt) {
           setGameStateUpdatedAt(updatedAt);
+        }
+        if (newSessionId) {
+          setSessionId(newSessionId);
         }
 
         if (newState === 'QUIZ' && updatedAt) {
@@ -176,7 +195,7 @@ const App: React.FC = () => {
       }
     };
 
-    const interval = setInterval(syncState, 500);
+    const interval = setInterval(syncState, 200);
     return () => clearInterval(interval);
   }, [useApi, view, studentInfo, gameState, currentQuestionIndex, maxTimer]);
 
@@ -195,9 +214,18 @@ const App: React.FC = () => {
   const handleJoin = useCallback(async (name: string) => {
     setIsLoading(true);
 
+    let activeSessionId = sessionId;
+    if (useApi && !activeSessionId) {
+      const stateResult = await getGameState();
+      if (stateResult.success && stateResult.data?.sessionId) {
+        activeSessionId = stateResult.data.sessionId;
+        setSessionId(activeSessionId);
+      }
+    }
+
     if (useApi) {
       console.log('👤 Adding participant to Google Sheets:', name);
-      const result = await addParticipant(name);
+      const result = await addParticipant(name, activeSessionId || undefined);
 
       if (result.success && result.data) {
         const newParticipant: Participant = {
@@ -221,17 +249,17 @@ const App: React.FC = () => {
     }
 
     setIsLoading(false);
-  }, [useApi]);
+  }, [useApi, sessionId]);
 
   // 게임 시작 (카운트다운)
   const startCountdown = useCallback(async () => {
-    setGameState('COUNTDOWN');
-
     if (useApi) {
       console.log('🎮 Starting game...');
-      await updateGameState('COUNTDOWN', currentQuestionIndex, maxTimer);
+      await updateGameState('COUNTDOWN', currentQuestionIndex, maxTimer, sessionId || undefined);
     }
-  }, [useApi, currentQuestionIndex, maxTimer]);
+    setGameState('COUNTDOWN');
+    setGameStateUpdatedAt(Date.now());
+  }, [useApi, currentQuestionIndex, maxTimer, sessionId]);
 
   // 카운트다운 완료 → 퀴즈 시작
   const handleCountdownComplete = useCallback(async () => {
@@ -240,16 +268,23 @@ const App: React.FC = () => {
     setQuestionStartTime(Date.now());
 
     if (useApi) {
-      await updateGameState('QUIZ', currentQuestionIndex, maxTimer);
+      await updateGameState('QUIZ', currentQuestionIndex, maxTimer, sessionId || undefined);
     }
-  }, [useApi, maxTimer, currentQuestionIndex]);
+  }, [useApi, maxTimer, currentQuestionIndex, sessionId]);
+
+  const handleShowResult = useCallback(async () => {
+    setGameState('RESULT');
+    if (useApi) {
+      await updateGameState('RESULT', currentQuestionIndex, maxTimer, sessionId || undefined);
+    }
+  }, [useApi, currentQuestionIndex, maxTimer, sessionId]);
 
   const handleShowRanking = useCallback(async () => {
     setGameState('RANKING');
     if (useApi) {
-      await updateGameState('RANKING', currentQuestionIndex, maxTimer);
+      await updateGameState('RANKING', currentQuestionIndex, maxTimer, sessionId || undefined);
     }
-  }, [useApi, currentQuestionIndex, maxTimer]);
+  }, [useApi, currentQuestionIndex, maxTimer, sessionId]);
 
   // 답변 제출
   const handleAnswer = useCallback(async (answerIndex: number) => {
@@ -270,7 +305,8 @@ const App: React.FC = () => {
         studentInfo.id,
         currentQuestion.id,
         answerIndex,
-        responseTime
+        responseTime,
+        sessionId || undefined
       );
 
       if (result.success && result.data) {
@@ -316,7 +352,7 @@ const App: React.FC = () => {
 
       setParticipants([...MOCK_PARTICIPANTS]);
     }
-  }, [studentInfo, questionStartTime, questions, currentQuestionIndex, useApi, maxTimer]);
+  }, [studentInfo, questionStartTime, questions, currentQuestionIndex, useApi, maxTimer, sessionId]);
 
   // 다음 문제
   const nextQuestion = useCallback(async () => {
@@ -343,17 +379,17 @@ const App: React.FC = () => {
       setGameState('COUNTDOWN');
 
       if (useApi) {
-        await updateGameState('COUNTDOWN', nextIdx, maxTimer);
+        await updateGameState('COUNTDOWN', nextIdx, maxTimer, sessionId || undefined);
       }
     } else {
       setGameState('FINAL');
       audioService.playWinner();
 
       if (useApi) {
-        await updateGameState('FINAL', currentQuestionIndex, maxTimer);
+        await updateGameState('FINAL', currentQuestionIndex, maxTimer, sessionId || undefined);
       }
     }
-  }, [currentQuestionIndex, questions.length, studentInfo, useApi, maxTimer]);
+  }, [currentQuestionIndex, questions.length, studentInfo, useApi, maxTimer, sessionId]);
 
   // 게임 리셋
   const handleRestart = useCallback(async () => {
@@ -368,6 +404,7 @@ const App: React.FC = () => {
     setCurrentQuestionIndex(0);
     setGameState('LOBBY');
     setTimer(maxTimer);
+    setSessionId(null);
     setView('SELECT');
   }, [useApi, maxTimer]);
 
@@ -385,13 +422,7 @@ const App: React.FC = () => {
           return t - 1;
         });
       }, 1000);
-    } else if (gameState === 'QUIZ' && timer === 0) {
-      setGameState('RESULT');
-      if (useApi) {
-        updateGameState('RESULT', currentQuestionIndex, maxTimer);
-      }
     }
-
     return () => clearInterval(interval);
   }, [isTeacher, gameState, timer, useApi, currentQuestionIndex, maxTimer]);
 
@@ -406,40 +437,6 @@ const App: React.FC = () => {
     }, 250);
 
     return () => clearInterval(interval);
-  }, [view, studentInfo, gameState, gameStateUpdatedAt, maxTimer]);
-
-  // 학생 화면: 카운트다운/퀴즈 자동 전환 (서버 시간 기준)
-  useEffect(() => {
-    if (view !== 'STUDENT' || !studentInfo) return;
-    if (!gameStateUpdatedAt) return;
-
-    if (gameState === 'COUNTDOWN') {
-      const quizStartAt = gameStateUpdatedAt + COUNTDOWN_TOTAL_MS;
-      const delay = Math.max(0, quizStartAt - Date.now());
-      const timeout = setTimeout(() => {
-        if (gameState === 'COUNTDOWN') {
-          setGameState('QUIZ');
-          setQuestionStartTime(quizStartAt);
-          setTimer(maxTimer);
-        }
-      }, delay);
-      return () => clearTimeout(timeout);
-    }
-
-    if (gameState === 'QUIZ') {
-      const quizEndAt = gameStateUpdatedAt + maxTimer * 1000;
-      const delay = Math.max(0, quizEndAt - Date.now());
-      const timeout = setTimeout(() => {
-        if (gameState === 'QUIZ') {
-          setGameState('RESULT');
-          setTimer(0);
-          if (studentInfo.lastAnswer === undefined) {
-            setStudentInfo(prev => prev ? { ...prev, isCorrect: false } : null);
-          }
-        }
-      }, delay);
-      return () => clearTimeout(timeout);
-    }
   }, [view, studentInfo, gameState, gameStateUpdatedAt, maxTimer]);
 
   // 학생 화면: 다음 문제 시작 시 답변 상태 초기화
@@ -458,7 +455,7 @@ const App: React.FC = () => {
     if (gameState !== 'RESULT' && gameState !== 'RANKING' && gameState !== 'FINAL') return;
 
     const fetchParticipants = async () => {
-      const result = await getParticipants();
+      const result = await getParticipants(sessionId || undefined);
       if (result.success && result.data) {
         setParticipants(result.data.map(p => ({
           ...p,
@@ -471,7 +468,7 @@ const App: React.FC = () => {
     fetchParticipants();
     const interval = setInterval(fetchParticipants, 1000);
     return () => clearInterval(interval);
-  }, [useApi, view, studentInfo, gameState]);
+  }, [useApi, view, studentInfo, gameState, sessionId]);
 
   // 선생님 화면: 응답 현황 폴링 (QUIZ 중)
   useEffect(() => {
@@ -479,20 +476,22 @@ const App: React.FC = () => {
     if (gameState !== 'QUIZ' || !currentQuestion) return;
 
     const fetchAnswers = async () => {
-      const result = await getAnswerStats(currentQuestion.id);
+      const result = await getAnswerStats(currentQuestion.id, sessionId || undefined);
       if (result.success && result.data) {
         setAnsweredCount(result.data.length);
+        setAnswerStats(result.data);
       }
     };
 
     fetchAnswers();
     const interval = setInterval(fetchAnswers, 500);
     return () => clearInterval(interval);
-  }, [useApi, view, gameState, currentQuestion]);
+  }, [useApi, view, gameState, currentQuestion, sessionId]);
 
   // 응답 현황 초기화
   useEffect(() => {
     setAnsweredCount(0);
+    setAnswerStats([]);
   }, [gameState, currentQuestionIndex]);
 
   // 현재 문제
@@ -619,12 +618,21 @@ const App: React.FC = () => {
                     timer={timer}
                     maxTimer={maxTimer}
                   />
+                  <div className="flex justify-center">
+                    <button
+                      onClick={handleShowResult}
+                      className="bg-green-500 hover:bg-green-400 text-white text-2xl font-jua px-10 py-4 rounded-2xl shadow-lg active:scale-95 transition-all"
+                    >
+                      결과 확인
+                    </button>
+                  </div>
                 </div>
               )}
               {gameState === 'RESULT' && currentQuestion && (
                 <ResultView
                   question={currentQuestion}
                   participants={participants}
+                  answerStats={answerStats}
                   isTeacher={true}
                   onNext={handleShowRanking}
                 />
@@ -668,7 +676,8 @@ const App: React.FC = () => {
                       <User size={48} />
                     </div>
                     <h2 className="text-3xl font-jua mb-2">{studentInfo.name}님, 환영합니다!</h2>
-                    <p className="text-white/60">선생님이 게임을 시작할 때까지 기다려 주세요.</p>
+                    <p className="text-white/60">퀴즈 준비중입니다.</p>
+                    <p className="text-white/40 mt-2">선생님이 시작하면 자동으로 진행됩니다.</p>
                   </motion.div>
                 )}
 
@@ -728,7 +737,16 @@ const App: React.FC = () => {
                 {/* 결과 - 정답/오답 */}
                 {gameState === 'RESULT' && (
                   <div className="text-center">
-                    {studentInfo.isCorrect ? (
+                    {studentInfo.lastAnswer === undefined ? (
+                      <motion.div
+                        initial={{ scale: 0.95, opacity: 0 }}
+                        animate={{ scale: 1, opacity: 1 }}
+                        className="text-center bg-white/10 px-10 py-12 rounded-3xl border border-white/20 shadow-2xl"
+                      >
+                        <p className="text-3xl font-jua text-yellow-300 mb-4">퀴즈 시작 대기 중</p>
+                        <p className="text-white/70">선생님이 결과 확인을 누르면 표시됩니다.</p>
+                      </motion.div>
+                    ) : studentInfo.isCorrect ? (
                       <motion.div
                         initial={{ scale: 0.5 }}
                         animate={{ scale: 1 }}

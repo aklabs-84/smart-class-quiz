@@ -59,15 +59,15 @@ async function apiRequest<T>(
 /**
  * 모든 참가자 조회
  */
-export async function getParticipants(): Promise<ApiResponse<Participant[]>> {
-  return apiRequest<Participant[]>('getParticipants');
+export async function getParticipants(sessionId?: string): Promise<ApiResponse<Participant[]>> {
+  return apiRequest<Participant[]>('getParticipants', sessionId ? { sessionId } : undefined);
 }
 
 /**
  * 참가자 추가
  */
-export async function addParticipant(name: string): Promise<ApiResponse<Participant>> {
-  return apiRequest<Participant>('addParticipant', { name });
+export async function addParticipant(name: string, sessionId?: string): Promise<ApiResponse<Participant>> {
+  return apiRequest<Participant>('addParticipant', sessionId ? { name, sessionId } : { name });
 }
 
 // ===================================
@@ -92,21 +92,39 @@ export async function submitAnswer(
   participantId: string,
   questionId: number,
   selectedAnswer: number,
-  responseTime: number
+  responseTime: number,
+  sessionId?: string
 ): Promise<ApiResponse<{ isCorrect: boolean; score: number; correctAnswer: number }>> {
   return apiRequest('submitAnswer', {
     participantId,
     questionId,
     selectedAnswer,
     responseTime,
+    ...(sessionId ? { sessionId } : {}),
   });
 }
 
 /**
  * 특정 문제의 답변 통계 조회
  */
-export async function getAnswerStats(questionId: number): Promise<ApiResponse<Answer[]>> {
-  return apiRequest<Answer[]>('getAnswers', { questionId });
+export async function getAnswerStats(
+  questionId: number,
+  sessionId?: string
+): Promise<ApiResponse<Answer[]>> {
+  const result = await apiRequest<Answer[]>(
+    'getAnswers',
+    sessionId ? { questionId, sessionId } : { questionId }
+  );
+
+  if (result.success && result.data) {
+    const normalized = result.data.map((answer: any) => ({
+      ...answer,
+      selectedOption: answer.selectedOption ?? answer.selectedAnswer,
+    }));
+    return { ...result, data: normalized };
+  }
+
+  return result;
 }
 
 // ===================================
@@ -118,6 +136,7 @@ interface GameStateData {
   currentQuestionIndex: number;
   maxTimer: number;
   updatedAt?: string;
+  sessionId?: string;
 }
 
 /**
@@ -133,12 +152,14 @@ export async function getGameState(): Promise<ApiResponse<GameStateData>> {
 export async function updateGameState(
   state: GameState,
   currentQuestionIndex: number,
-  maxTimer: number
+  maxTimer: number,
+  sessionId?: string
 ): Promise<ApiResponse<void>> {
   return apiRequest('updateGameState', {
     state,
     currentQuestionIndex,
     maxTimer,
+    ...(sessionId ? { sessionId } : {}),
   });
 }
 

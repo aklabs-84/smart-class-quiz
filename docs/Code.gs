@@ -27,10 +27,10 @@ function doGet(e) {
   try {
     switch(action) {
       case 'getParticipants':
-        result = getParticipants();
+        result = getParticipants(e.parameter.sessionId);
         break;
       case 'addParticipant':
-        result = addParticipant(e.parameter.name);
+        result = addParticipant(e.parameter.name, e.parameter.sessionId);
         break;
       case 'getQuestions':
         result = getQuestions();
@@ -40,11 +40,12 @@ function doGet(e) {
           participantId: e.parameter.participantId,
           questionId: parseInt(e.parameter.questionId),
           selectedAnswer: parseInt(e.parameter.selectedAnswer),
-          responseTime: parseFloat(e.parameter.responseTime)
+          responseTime: parseFloat(e.parameter.responseTime),
+          sessionId: e.parameter.sessionId
         });
         break;
       case 'getAnswers':
-        result = getAnswers(e.parameter.questionId);
+        result = getAnswers(parseInt(e.parameter.questionId), e.parameter.sessionId);
         break;
       case 'getGameState':
         result = getGameState();
@@ -53,7 +54,8 @@ function doGet(e) {
         result = updateGameState(
           e.parameter.state,
           parseInt(e.parameter.currentQuestionIndex),
-          parseInt(e.parameter.maxTimer)
+          parseInt(e.parameter.maxTimer),
+          e.parameter.sessionId
         );
         break;
       case 'resetGame':
@@ -86,7 +88,7 @@ function doPost(e) {
 // ============================================
 
 // 참가자 목록 조회
-function getParticipants() {
+function getParticipants(sessionId) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName(SHEETS.PARTICIPANTS);
 
@@ -100,18 +102,22 @@ function getParticipants() {
     return { success: true, data: [] };
   }
 
-  const participants = data.slice(1).filter(row => row[0]).map(row => ({
-    id: row[0],
-    name: row[1],
-    joinedAt: row[2],
-    score: row[3] || 0
-  }));
+  const participants = data.slice(1)
+    .filter(row => row[0])
+    .filter(row => !sessionId || row[4] === sessionId)
+    .map(row => ({
+      id: row[0],
+      name: row[1],
+      joinedAt: row[2],
+      score: row[3] || 0,
+      sessionId: row[4]
+    }));
 
   return { success: true, data: participants };
 }
 
 // 참가자 추가
-function addParticipant(name) {
+function addParticipant(name, sessionId) {
   if (!name) {
     return { success: false, error: '이름이 필요합니다.' };
   }
@@ -126,11 +132,11 @@ function addParticipant(name) {
   const id = Utilities.getUuid();
   const joinedAt = new Date().toISOString();
 
-  sheet.appendRow([id, name, joinedAt, 0]);
+  sheet.appendRow([id, name, joinedAt, 0, sessionId || '']);
 
   return {
     success: true,
-    data: { id, name, joinedAt, score: 0 }
+    data: { id, name, joinedAt, score: 0, sessionId: sessionId || '' }
   };
 }
 
@@ -200,13 +206,16 @@ function submitAnswer(data) {
     : 0;
 
   // 답변 저장
+  const answeredAt = new Date().toISOString();
   answerSheet.appendRow([
     data.participantId,
     data.questionId,
     data.selectedAnswer + 1,  // 0-based to 1-based
     isCorrect ? 'TRUE' : 'FALSE',
     score,
-    data.responseTime
+    data.responseTime,
+    data.sessionId || '',
+    answeredAt
   ]);
 
   // 참가자 점수 업데이트
@@ -230,7 +239,7 @@ function submitAnswer(data) {
 }
 
 // 특정 문제의 답변 통계 조회
-function getAnswers(questionId) {
+function getAnswers(questionId, sessionId) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName(SHEETS.ANSWERS);
 
@@ -246,16 +255,24 @@ function getAnswers(questionId) {
 
   const answers = data.slice(1)
     .filter(row => row[1] == questionId)
+    .filter(row => !sessionId || row[6] === sessionId)
     .map(row => ({
       participantId: row[0],
       questionId: row[1],
-      selectedAnswer: row[2] - 1,  // 1-based to 0-based
+      selectedOption: row[2] - 1,  // 1-based to 0-based
       isCorrect: row[3] === true || row[3] === 'TRUE',
       score: row[4],
-      responseTime: row[5]
+      responseTime: row[5],
+      sessionId: row[6],
+      answeredAt: row[7]
     }));
 
-  return { success: true, data: answers };
+  const latestByParticipant = {};
+  answers.forEach(answer => {
+    latestByParticipant[answer.participantId] = answer;
+  });
+
+  return { success: true, data: Object.values(latestByParticipant) };
 }
 
 // ============================================
@@ -268,24 +285,40 @@ function getGameState() {
   const sheet = ss.getSheetByName(SHEETS.GAME_STATE);
 
   if (!sheet) {
+    const sessionId = Utilities.getUuid();
     return {
       success: true,
       data: {
         state: 'LOBBY',
         currentQuestionIndex: 0,
-        maxTimer: 20
+        maxTimer: 20,
+        sessionId: sessionId
       }
     };
   }
 
   const data = sheet.getDataRange().getValues();
   const stateMap = {};
+  let sessionRowIndex = -1;
 
-  data.slice(1).forEach(row => {
+  data.slice(1).forEach((row, index) => {
     if (row[0]) {
       stateMap[row[0]] = row[1];
+      if (row[0] === 'sessionId') {
+        sessionRowIndex = index + 2; // header row offset
+      }
     }
   });
+
+  if (!stateMap.sessionId) {
+    const newSessionId = Utilities.getUuid();
+    stateMap.sessionId = newSessionId;
+    if (sessionRowIndex > 0) {
+      sheet.getRange(sessionRowIndex, 2).setValue(newSessionId);
+    } else {
+      sheet.appendRow(['sessionId', newSessionId]);
+    }
+  }
 
   return {
     success: true,
@@ -293,13 +326,14 @@ function getGameState() {
       state: stateMap.state || 'LOBBY',
       currentQuestionIndex: parseInt(stateMap.currentQuestionIndex) || 0,
       maxTimer: parseInt(stateMap.maxTimer) || 20,
+      sessionId: stateMap.sessionId,
       updatedAt: stateMap.updatedAt
     }
   };
 }
 
 // 게임 상태 업데이트
-function updateGameState(state, currentQuestionIndex, maxTimer) {
+function updateGameState(state, currentQuestionIndex, maxTimer, sessionId) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sheet = ss.getSheetByName(SHEETS.GAME_STATE);
 
@@ -310,24 +344,35 @@ function updateGameState(state, currentQuestionIndex, maxTimer) {
     sheet.appendRow(['state', 'LOBBY']);
     sheet.appendRow(['currentQuestionIndex', 0]);
     sheet.appendRow(['maxTimer', 20]);
+    sheet.appendRow(['sessionId', sessionId || Utilities.getUuid()]);
     sheet.appendRow(['updatedAt', new Date().toISOString()]);
   }
 
   const data = sheet.getDataRange().getValues();
-  const updates = {
-    state: state,
-    currentQuestionIndex: currentQuestionIndex,
-    maxTimer: maxTimer,
-    updatedAt: new Date().toISOString()
-  };
-
   const existingKeys = {};
+  let existingSessionId = '';
 
   for (let i = 1; i < data.length; i++) {
     const key = data[i][0];
     if (key) {
       existingKeys[key] = true;
     }
+    if (key === 'sessionId') {
+      existingSessionId = data[i][1];
+    }
+  }
+
+  const effectiveSessionId = sessionId || existingSessionId || Utilities.getUuid();
+  const updates = {
+    state: state,
+    currentQuestionIndex: currentQuestionIndex,
+    maxTimer: maxTimer,
+    sessionId: effectiveSessionId,
+    updatedAt: new Date().toISOString()
+  };
+
+  for (let i = 1; i < data.length; i++) {
+    const key = data[i][0];
     if (updates[key] !== undefined) {
       sheet.getRange(i + 1, 2).setValue(updates[key]);
     }
@@ -335,7 +380,7 @@ function updateGameState(state, currentQuestionIndex, maxTimer) {
 
   // 누락된 키는 새로 추가 (시트가 이미 있었지만 행이 비어있는 경우 대비)
   Object.keys(updates).forEach(key => {
-    if (!existingKeys[key]) {
+    if (updates[key] !== undefined && !existingKeys[key]) {
       sheet.appendRow([key, updates[key]]);
     }
   });
@@ -360,7 +405,7 @@ function resetGame() {
   }
 
   // 게임 상태 초기화
-  updateGameState('LOBBY', 0, 20);
+  updateGameState('LOBBY', 0, 20, Utilities.getUuid());
 
   return { success: true };
 }

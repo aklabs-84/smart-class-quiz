@@ -5,12 +5,13 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import { CheckCircle, Users } from 'lucide-react';
-import { Question, Participant } from '../types';
+import { Answer, Question, Participant } from '../types';
 import { OPTION_LABELS, OPTION_COLORS } from '../types';
 
 interface ResultViewProps {
   question: Question;
   participants: Participant[];
+  answerStats?: Answer[];
   onNext?: () => void;
   isTeacher?: boolean;
 }
@@ -18,12 +19,15 @@ interface ResultViewProps {
 const ResultView: React.FC<ResultViewProps> = ({
   question,
   participants,
+  answerStats,
   onNext,
   isTeacher = false
 }) => {
   // 선택지별 통계 계산
   const optionStats = question.options.map((_, idx) => {
-    const count = participants.filter(p => p.lastAnswer === idx).length;
+    const count = answerStats
+      ? answerStats.filter(a => a.selectedOption === idx).length
+      : participants.filter(p => p.lastAnswer === idx).length;
     return {
       index: idx,
       count,
@@ -34,7 +38,9 @@ const ResultView: React.FC<ResultViewProps> = ({
     };
   });
 
-  const totalAnswered = participants.filter(p => p.lastAnswer !== undefined).length;
+  const totalAnswered = answerStats
+    ? answerStats.length
+    : participants.filter(p => p.lastAnswer !== undefined).length;
 
   const barColors = [
     'bg-red-500',
