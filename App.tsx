@@ -277,6 +277,11 @@ const App: React.FC = () => {
           setSessionId(newSessionId);
         }
 
+        if (newSessionId && studentInfo?.sessionId && newSessionId !== studentInfo.sessionId) {
+          setStudentInfo(null);
+          setParticipants([]);
+        }
+
         if (newState === 'QUIZ' && updatedAt) {
           setQuestionStartTime(updatedAt);
           const elapsed = Math.floor((Date.now() - updatedAt) / 1000);
