@@ -2,7 +2,7 @@
 // Smart Class Quiz - Main Application
 // ===================================
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { User, Shield, Trophy, CheckCircle, XCircle, Wifi, WifiOff } from 'lucide-react';
 
@@ -117,34 +117,72 @@ const App: React.FC = () => {
     }
   }, [view, gameState, audioReady, bgmEnabled]);
 
-  // 선생님 입장 시 자동 리셋 (이전 세션 데이터 정리)
+  // 선생님 입장 시 세션 동기화 (참가자가 있으면 유지, 없으면 초기화)
   useEffect(() => {
     if (!useApi || view !== 'TEACHER' || gameState !== 'LOBBY' || hasAutoReset) return;
 
-    const resetSession = async () => {
+    const syncTeacherSession = async () => {
+      const existingParticipants = await getParticipants();
+      if (existingParticipants.success && existingParticipants.data && existingParticipants.data.length > 0) {
+        const latestParticipant = existingParticipants.data[existingParticipants.data.length - 1];
+        const activeSessionId = latestParticipant.sessionId || null;
+        if (activeSessionId) {
+          setSessionId(prev => (prev !== activeSessionId ? activeSessionId : prev));
+          await updateGameState('LOBBY', 0, maxTimer, activeSessionId);
+        }
+        setHasAutoReset(true);
+        return;
+      }
+
       await resetGame();
+      const refreshedState = await getGameState();
+      if (refreshedState.success && refreshedState.data?.sessionId) {
+        setSessionId(refreshedState.data.sessionId);
+      }
       setParticipants([]);
       setCurrentQuestionIndex(0);
       setGameState('LOBBY');
       setHasAutoReset(true);
     };
 
-    resetSession();
-  }, [useApi, view, gameState, hasAutoReset]);
+    syncTeacherSession();
+  }, [useApi, view, gameState, hasAutoReset, maxTimer]);
+
+  const ensureSessionId = useCallback(async () => {
+    if (!useApi) return null;
+
+    const result = await getGameState();
+    if (result.success && result.data?.sessionId) {
+      const {
+        sessionId: loadedSessionId,
+        state,
+        currentQuestionIndex: loadedQuestionIndex,
+        maxTimer: loadedMaxTimer,
+        updatedAt,
+      } = result.data;
+
+      setSessionId(prev => (prev !== loadedSessionId ? loadedSessionId : prev));
+
+      if (!updatedAt && state === 'LOBBY') {
+        await updateGameState(
+          state,
+          loadedQuestionIndex ?? 0,
+          loadedMaxTimer ?? maxTimer,
+          loadedSessionId
+        );
+      }
+
+      return loadedSessionId;
+    }
+
+    return null;
+  }, [useApi, maxTimer]);
 
   // 세션 ID 로드
   useEffect(() => {
     if (!useApi || sessionId) return;
-
-    const loadSession = async () => {
-      const result = await getGameState();
-      if (result.success && result.data?.sessionId) {
-        setSessionId(result.data.sessionId);
-      }
-    };
-
-    loadSession();
-  }, [useApi, sessionId]);
+    ensureSessionId();
+  }, [useApi, sessionId, ensureSessionId]);
 
   // 문제 로드 (API 또는 Mock)
   useEffect(() => {
@@ -276,11 +314,7 @@ const App: React.FC = () => {
 
     let activeSessionId = sessionId;
     if (useApi && !activeSessionId) {
-      const stateResult = await getGameState();
-      if (stateResult.success && stateResult.data?.sessionId) {
-        activeSessionId = stateResult.data.sessionId;
-        setSessionId(activeSessionId);
-      }
+      activeSessionId = await ensureSessionId();
     }
 
     if (useApi) {
@@ -570,16 +604,38 @@ const App: React.FC = () => {
     return () => clearInterval(interval);
   }, [useApi, view, gameState, currentQuestion, sessionId]);
 
-  // 응답 현황 초기화
+  // 응답 현황 초기화 (다음 문제로 넘어갈 때만)
   useEffect(() => {
     setAnsweredCount(0);
     setAnswerStats([]);
-  }, [gameState, currentQuestionIndex]);
+  }, [currentQuestionIndex]);
 
   // 현재 문제
   const answeredDisplayCount = useApi
     ? answeredCount
     : participants.filter(p => p.lastAnswer !== undefined).length;
+  const recentScores = useMemo(() => {
+    if (answerStats.length > 0) {
+      return answerStats.reduce<Record<string, number>>((acc, answer) => {
+        if (answer.participantId) {
+          acc[answer.participantId] = answer.score ?? 0;
+        }
+        return acc;
+      }, {});
+    }
+
+    if (!useApi) {
+      return participants.reduce<Record<string, number>>((acc, participant) => {
+        const latest = participant.answers?.[participant.answers.length - 1];
+        if (latest) {
+          acc[participant.id] = latest.score ?? 0;
+        }
+        return acc;
+      }, {});
+    }
+
+    return {};
+  }, [answerStats, participants, useApi]);
   const studentRank = view === 'STUDENT' && studentInfo
     ? [...participants].sort((a, b) => b.score - a.score)
       .findIndex(p => p.id === studentInfo.id) + 1
@@ -682,8 +738,6 @@ const App: React.FC = () => {
           participants={participants}
           isTeacher={true}
           onStart={startCountdown}
-          onToggleBgm={handleToggleBgm}
-          isBgmPlaying={bgmEnabled}
         />
       )}
               {teacherCountdownActive && (
@@ -727,6 +781,7 @@ const App: React.FC = () => {
                   onNext={nextQuestion}
                   isTeacher={true}
                   nextLabel={currentQuestionIndex >= questions.length - 1 ? '최종 결과 보기' : '다음 문제로'}
+                  recentScores={recentScores}
                 />
               )}
               {gameState === 'FINAL' && (
@@ -738,7 +793,12 @@ const App: React.FC = () => {
             </div>
 
             {gameState === 'LOBBY' && (
-              <TeacherControls maxTimer={maxTimer} setMaxTimer={setMaxTimer} />
+              <TeacherControls
+                maxTimer={maxTimer}
+                setMaxTimer={setMaxTimer}
+                onToggleBgm={handleToggleBgm}
+                isBgmPlaying={bgmEnabled}
+              />
             )}
           </div>
         )}
@@ -882,6 +942,7 @@ const App: React.FC = () => {
                       onNext={() => {}}
                       isTeacher={false}
                       nextLabel={currentQuestionIndex >= questions.length - 1 ? '최종 결과 보기' : '다음 문제로'}
+                      recentScores={recentScores}
                     />
                   </div>
                 )}

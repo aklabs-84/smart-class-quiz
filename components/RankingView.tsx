@@ -9,9 +9,10 @@ interface RankingProps {
   onNext: () => void;
   isTeacher: boolean;
   nextLabel?: string;
+  recentScores?: Record<string, number>;
 }
 
-const RankingView: React.FC<RankingProps> = ({ participants, onNext, isTeacher, nextLabel }) => {
+const RankingView: React.FC<RankingProps> = ({ participants, onNext, isTeacher, nextLabel, recentScores }) => {
   const sorted = [...participants].sort((a, b) => b.score - a.score);
 
   return (
@@ -36,7 +37,7 @@ const RankingView: React.FC<RankingProps> = ({ participants, onNext, isTeacher, 
               <span className="text-2xl font-bold">{p.name}</span>
             </div>
             <div className="flex items-center gap-4">
-              <span className="text-xl font-bold opacity-60">+{p.isCorrect ? 'POINT' : '0'}</span>
+              <span className="text-xl font-bold opacity-60">+{recentScores?.[p.id] ?? 0}</span>
               <span className="text-3xl font-jua">{p.score}</span>
             </div>
           </motion.div>

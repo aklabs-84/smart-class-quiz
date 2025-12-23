@@ -8,11 +8,9 @@ interface LobbyProps {
   participants: Participant[];
   isTeacher: boolean;
   onStart: () => void;
-  onToggleBgm?: () => void;
-  isBgmPlaying?: boolean;
 }
 
-const LobbyView: React.FC<LobbyProps> = ({ participants, isTeacher, onStart, onToggleBgm, isBgmPlaying }) => {
+const LobbyView: React.FC<LobbyProps> = ({ participants, isTeacher, onStart }) => {
   return (
     <div className="flex flex-col items-center justify-center h-full p-6">
       <div className="mb-12 text-center">
@@ -52,14 +50,6 @@ const LobbyView: React.FC<LobbyProps> = ({ participants, isTeacher, onStart, onT
           initial={{ y: 50, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
         >
-          {onToggleBgm && (
-            <button
-              onClick={onToggleBgm}
-              className="bg-white/10 hover:bg-white/20 text-white text-lg font-jua px-6 py-3 rounded-2xl border border-white/20 transition-all"
-            >
-              {isBgmPlaying ? 'BGM 끄기' : 'BGM 재생'}
-            </button>
-          )}
           <button
             onClick={onStart}
             disabled={participants.length === 0}
