@@ -2,19 +2,20 @@
 <img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
 </div>
 
-# Run and deploy your AI Studio app
+# Smart Class Quiz (Kahoot Style)
 
-This contains everything you need to run your app locally.
+스마트 교실을 위한 실시간 퀴즈 웹앱입니다. 선생님 대시보드에서 문제를 진행하고, 학생들은 모바일이나 노트북으로 즉시 참여해 점수와 순위를 확인할 수 있습니다. Kahoot 스타일의 애니메이션과 리더보드 흐름을 제공하며, Google Sheets 연동 로직을 기반으로 운영할 수 있도록 설계되어 있습니다.
 
-View your app in AI Studio: https://ai.studio/apps/drive/1zhMB3JmyismEJqssnRJ4qCZr5ci24_mk
+## 주요 기능
 
-## Run Locally
+- 선생님/학생 모드 분리
+- 실시간 문제 진행 및 타이머
+- 정답 확인, 점수 집계, 순위/최종 결과 화면
+- Google Sheets 연동을 위한 데이터 흐름 구조
 
-**Prerequisites:**  Node.js
 
+## 사용 예시
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+- 선생님 모드에서 퀴즈를 시작하고 타이머를 설정한 뒤 문제를 순차적으로 진행합니다.
+- 학생들은 접속 후 닉네임을 입력해 참여하고, 각 문제에 제한 시간 내 답변합니다.
+- 문제 종료 시 정답과 점수가 표시되며, 전체 순위와 최종 결과 화면으로 이어집니다.
