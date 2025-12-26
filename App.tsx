@@ -19,6 +19,7 @@ import JoinView from './components/JoinView';
 import TeacherLogin from './components/TeacherLogin';
 import CountdownView from './components/CountdownView';
 import ResultView from './components/ResultView';
+import TeacherQuestionForm, { NewQuestionInput } from './components/TeacherQuestionForm';
 
 // Services & Utils
 import {
@@ -29,6 +30,8 @@ import {
   getParticipants,
   addParticipant,
   getQuestions,
+  addQuestion,
+  updateQuestion,
   submitAnswer,
   getAnswerStats,
   updateGameState,
@@ -57,6 +60,8 @@ const App: React.FC = () => {
   const [audioReady, setAudioReady] = useState(false);
   const [bgmEnabled, setBgmEnabled] = useState(false);
   const [hasAutoReset, setHasAutoReset] = useState(false);
+  const [isSavingQuestion, setIsSavingQuestion] = useState(false);
+  const [teacherLobbyView, setTeacherLobbyView] = useState<'WAITING' | 'QUESTIONS'>('WAITING');
 
   // 사용자 상태
   const [isTeacher, setIsTeacher] = useState(false);
@@ -350,6 +355,72 @@ const App: React.FC = () => {
     setIsLoading(false);
   }, [useApi, sessionId]);
 
+  const handleAddQuestion = useCallback(async (payload: NewQuestionInput): Promise<boolean> => {
+    setIsSavingQuestion(true);
+
+    try {
+      if (useApi) {
+        const result = await addQuestion(payload);
+        if (!result.success) {
+          alert('문제 저장 실패: ' + (result.error || '알 수 없는 오류'));
+          return false;
+        }
+
+        const refreshed = await getQuestions();
+        if (refreshed.success && refreshed.data) {
+          setQuestions(refreshed.data);
+          setIsConnected(true);
+        }
+        return true;
+      } else {
+        const nextId = Math.max(0, ...MOCK_QUESTIONS.map(q => q.id)) + 1;
+        const newQuestion = { ...payload, id: nextId };
+        MOCK_QUESTIONS.push(newQuestion);
+        setQuestions(prev => [...prev, newQuestion]);
+        return true;
+      }
+    } catch (error) {
+      alert('문제 저장 중 오류가 발생했습니다.');
+      console.error(error);
+      return false;
+    } finally {
+      setIsSavingQuestion(false);
+    }
+  }, [useApi]);
+
+  const handleUpdateQuestion = useCallback(async (payload: Question): Promise<boolean> => {
+    setIsSavingQuestion(true);
+
+    try {
+      if (useApi) {
+        const result = await updateQuestion(payload);
+        if (!result.success) {
+          alert('문제 수정 실패: ' + (result.error || '알 수 없는 오류'));
+          return false;
+        }
+
+        const refreshed = await getQuestions();
+        if (refreshed.success && refreshed.data) {
+          setQuestions(refreshed.data);
+          setIsConnected(true);
+        }
+        return true;
+      }
+
+      const updatedQuestions = questions.map(q => (q.id === payload.id ? payload : q));
+      MOCK_QUESTIONS.length = 0;
+      MOCK_QUESTIONS.push(...updatedQuestions);
+      setQuestions(updatedQuestions);
+      return true;
+    } catch (error) {
+      alert('문제 수정 중 오류가 발생했습니다.');
+      console.error(error);
+      return false;
+    } finally {
+      setIsSavingQuestion(false);
+    }
+  }, [useApi, questions]);
+
   // 게임 시작 (선생님 카운트다운 오버레이 + 바로 퀴즈 진행)
   const startCountdown = useCallback(async () => {
     audioService.ensureStarted();
@@ -519,6 +590,7 @@ const App: React.FC = () => {
     setTeacherCountdownActive(false);
     setHasAutoReset(false);
     setView('SELECT');
+    setTeacherLobbyView('WAITING');
   }, [useApi, maxTimer]);
 
   // 타이머 효과 (선생님만)
@@ -716,35 +788,79 @@ const App: React.FC = () => {
         {/* 선생님 대시보드 */}
         {view === 'TEACHER' && (
           <div key="teacher" className="p-4 min-h-screen flex flex-col">
-            <header className="flex justify-between items-center mb-8 p-4 bg-black/20 rounded-2xl">
-              <h2 className="text-2xl font-jua flex items-center gap-2">
-                <Shield className="text-blue-400" /> 선생님 대시보드
-              </h2>
-              <div className="flex items-center gap-4">
-                <div className="flex items-center gap-2 bg-purple-900/50 px-4 py-2 rounded-full border border-purple-400/30">
-                  <User size={18} />
-                  <span>{participants.length}명 참여 중</span>
+            <header className="mb-8 p-4 bg-black/20 rounded-2xl">
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <h2 className="text-2xl font-jua flex items-center gap-2">
+                  <Shield className="text-blue-400" /> 선생님 대시보드
+                </h2>
+                {gameState === 'LOBBY' && (
+                  <TeacherControls
+                    maxTimer={maxTimer}
+                    setMaxTimer={setMaxTimer}
+                    onToggleBgm={handleToggleBgm}
+                    isBgmPlaying={bgmEnabled}
+                  />
+                )}
+                <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-2 bg-purple-900/50 px-4 py-2 rounded-full border border-purple-400/30">
+                    <User size={18} />
+                    <span>{participants.length}명 참여 중</span>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setView('SELECT');
+                      setIsTeacher(false);
+                    }}
+                    className="text-white/50 hover:text-white transition-colors"
+                  >
+                    나가기
+                  </button>
                 </div>
-                <button
-                  onClick={() => {
-                    setView('SELECT');
-                    setIsTeacher(false);
-                  }}
-                  className="text-white/50 hover:text-white transition-colors"
-                >
-                  나가기
-                </button>
               </div>
             </header>
 
             <div className="flex-1 overflow-auto">
-      {gameState === 'LOBBY' && (
-        <LobbyView
-          participants={participants}
-          isTeacher={true}
-          onStart={startCountdown}
-        />
-      )}
+              {gameState === 'LOBBY' && (
+                <div className="space-y-8">
+                  <div className="flex flex-wrap items-center justify-center gap-4">
+                    <button
+                      onClick={() => setTeacherLobbyView('WAITING')}
+                      className={`px-6 py-3 rounded-2xl font-jua text-lg transition-all ${
+                        teacherLobbyView === 'WAITING'
+                          ? 'bg-green-500 text-white'
+                          : 'bg-white/10 text-white/80 hover:bg-white/20'
+                      }`}
+                    >
+                      게임 대기 화면
+                    </button>
+                    <button
+                      onClick={() => setTeacherLobbyView('QUESTIONS')}
+                      className={`px-6 py-3 rounded-2xl font-jua text-lg transition-all ${
+                        teacherLobbyView === 'QUESTIONS'
+                          ? 'bg-yellow-400 text-black'
+                          : 'bg-white/10 text-white/80 hover:bg-white/20'
+                      }`}
+                    >
+                      문제 입력 화면
+                    </button>
+                  </div>
+                  {teacherLobbyView === 'WAITING' ? (
+                    <LobbyView
+                      participants={participants}
+                      isTeacher={true}
+                      onStart={startCountdown}
+                    />
+                  ) : (
+                    <TeacherQuestionForm
+                      onAddQuestion={handleAddQuestion}
+                      onUpdateQuestion={handleUpdateQuestion}
+                      isSaving={isSavingQuestion}
+                      useApi={useApi}
+                      questions={questions}
+                    />
+                  )}
+                </div>
+              )}
               {teacherCountdownActive && (
                 <CountdownView playSound />
               )}
@@ -797,14 +913,7 @@ const App: React.FC = () => {
               )}
             </div>
 
-            {gameState === 'LOBBY' && (
-              <TeacherControls
-                maxTimer={maxTimer}
-                setMaxTimer={setMaxTimer}
-                onToggleBgm={handleToggleBgm}
-                isBgmPlaying={bgmEnabled}
-              />
-            )}
+            
           </div>
         )}
 

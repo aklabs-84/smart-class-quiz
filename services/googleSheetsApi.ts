@@ -81,6 +81,43 @@ export async function getQuestions(): Promise<ApiResponse<Question[]>> {
   return apiRequest<Question[]>('getQuestions');
 }
 
+/**
+ * 문제 추가
+ */
+export async function addQuestion(
+  payload: Omit<Question, 'id'>
+): Promise<ApiResponse<Question>> {
+  const [option1, option2, option3, option4] = payload.options;
+  return apiRequest<Question>('addQuestion', {
+    text: payload.text,
+    option1,
+    option2,
+    option3,
+    option4,
+    correctAnswer: payload.correctAnswer + 1,
+    timeLimit: payload.timeLimit,
+  });
+}
+
+/**
+ * 문제 수정
+ */
+export async function updateQuestion(
+  payload: Question
+): Promise<ApiResponse<Question>> {
+  const [option1, option2, option3, option4] = payload.options;
+  return apiRequest<Question>('updateQuestion', {
+    id: payload.id,
+    text: payload.text,
+    option1,
+    option2,
+    option3,
+    option4,
+    correctAnswer: payload.correctAnswer + 1,
+    timeLimit: payload.timeLimit,
+  });
+}
+
 // ===================================
 // 답변 관련 API
 // ===================================

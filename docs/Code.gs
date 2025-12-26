@@ -35,6 +35,29 @@ function doGet(e) {
       case 'getQuestions':
         result = getQuestions();
         break;
+      case 'addQuestion':
+        result = addQuestion({
+          text: e.parameter.text,
+          option1: e.parameter.option1,
+          option2: e.parameter.option2,
+          option3: e.parameter.option3,
+          option4: e.parameter.option4,
+          correctAnswer: parseInt(e.parameter.correctAnswer),
+          timeLimit: parseInt(e.parameter.timeLimit)
+        });
+        break;
+      case 'updateQuestion':
+        result = updateQuestion({
+          id: parseInt(e.parameter.id),
+          text: e.parameter.text,
+          option1: e.parameter.option1,
+          option2: e.parameter.option2,
+          option3: e.parameter.option3,
+          option4: e.parameter.option4,
+          correctAnswer: parseInt(e.parameter.correctAnswer),
+          timeLimit: parseInt(e.parameter.timeLimit)
+        });
+        break;
       case 'submitAnswer':
         result = submitAnswer({
           participantId: e.parameter.participantId,
@@ -170,6 +193,112 @@ function getQuestions() {
     }));
 
   return { success: true, data: questions };
+}
+
+// 문제 추가
+function addQuestion(data) {
+  if (!data || !data.text) {
+    return { success: false, error: '문제 내용이 필요합니다.' };
+  }
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(SHEETS.QUESTIONS);
+
+  if (!sheet) {
+    return { success: false, error: '문제 시트를 찾을 수 없습니다.' };
+  }
+
+  const dataRange = sheet.getDataRange().getValues();
+  const existingIds = dataRange
+    .slice(1)
+    .map(row => parseInt(row[0], 10))
+    .filter(id => !isNaN(id));
+  const nextId = existingIds.length > 0 ? Math.max.apply(null, existingIds) + 1 : 1;
+
+  const correctAnswer = parseInt(data.correctAnswer, 10);
+  if (isNaN(correctAnswer) || correctAnswer < 1 || correctAnswer > 4) {
+    return { success: false, error: '정답 번호는 1~4 사이여야 합니다.' };
+  }
+
+  const timeLimit = parseInt(data.timeLimit, 10) || 20;
+
+  sheet.appendRow([
+    nextId,
+    data.text,
+    data.option1 || '',
+    data.option2 || '',
+    data.option3 || '',
+    data.option4 || '',
+    correctAnswer,
+    timeLimit
+  ]);
+
+  return {
+    success: true,
+    data: {
+      id: nextId,
+      text: data.text,
+      options: [data.option1, data.option2, data.option3, data.option4],
+      correctAnswer: correctAnswer - 1,
+      timeLimit: timeLimit
+    }
+  };
+}
+
+// 문제 수정
+function updateQuestion(data) {
+  if (!data || !data.id) {
+    return { success: false, error: '문제 ID가 필요합니다.' };
+  }
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(SHEETS.QUESTIONS);
+
+  if (!sheet) {
+    return { success: false, error: '문제 시트를 찾을 수 없습니다.' };
+  }
+
+  const dataRange = sheet.getDataRange().getValues();
+  let targetRow = -1;
+  for (let i = 1; i < dataRange.length; i++) {
+    if (parseInt(dataRange[i][0], 10) === data.id) {
+      targetRow = i + 1;
+      break;
+    }
+  }
+
+  if (targetRow === -1) {
+    return { success: false, error: '수정할 문제를 찾을 수 없습니다.' };
+  }
+
+  const correctAnswer = parseInt(data.correctAnswer, 10);
+  if (isNaN(correctAnswer) || correctAnswer < 1 || correctAnswer > 4) {
+    return { success: false, error: '정답 번호는 1~4 사이여야 합니다.' };
+  }
+
+  const timeLimit = parseInt(data.timeLimit, 10) || 20;
+
+  sheet.getRange(targetRow, 1, 1, 8).setValues([[
+    data.id,
+    data.text || '',
+    data.option1 || '',
+    data.option2 || '',
+    data.option3 || '',
+    data.option4 || '',
+    correctAnswer,
+    timeLimit
+  ]]);
+
+  return {
+    success: true,
+    data: {
+      id: data.id,
+      text: data.text,
+      options: [data.option1, data.option2, data.option3, data.option4],
+      correctAnswer: correctAnswer - 1,
+      timeLimit: timeLimit
+    }
+  };
 }
 
 // ============================================

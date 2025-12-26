@@ -1,5 +1,3 @@
-
-
 # Smart Class Quiz (Kahoot Style)
 
 스마트 교실을 위한 실시간 퀴즈 웹앱입니다. 선생님 대시보드에서 문제를 진행하고, 학생들은 모바일이나 노트북으로 즉시 참여해 점수와 순위를 확인할 수 있습니다. Kahoot 스타일의 애니메이션과 리더보드 흐름을 제공하며, Google Sheets 연동 로직을 기반으로 운영할 수 있도록 설계되어 있습니다.
@@ -10,6 +8,18 @@
 - 실시간 문제 진행 및 타이머
 - 정답 확인, 점수 집계, 순위/최종 결과 화면
 - Google Sheets 연동을 위한 데이터 흐름 구조
+
+## 최근 업데이트 (선생님 화면 개선)
+
+- 선생님 로그인 후 로비에서 "게임 대기"와 "문제 입력" 화면을 전환 가능
+- 문제 입력 화면에서 Google Sheets에 문제 추가 및 기존 문제 수정 지원
+- BGM 재생/문제 제한 시간 컨트롤을 상단 대시보드 헤더로 이동
+- Apps Script API에 `addQuestion`, `updateQuestion` 액션 추가
+
+## Google Sheets 연동 안내
+
+- Apps Script에 `docs/Code.gs` 전체 코드를 붙여넣고 새로 배포해야 합니다.
+- 배포 후 생성된 URL을 `.env.local`의 `VITE_GOOGLE_SHEETS_API_URL`에 설정하세요.
 
 
 ## 사용 예시
